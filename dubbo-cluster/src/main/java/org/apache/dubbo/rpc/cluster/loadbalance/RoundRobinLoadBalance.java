@@ -35,12 +35,13 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class RoundRobinLoadBalance extends AbstractLoadBalance {
     public static final String NAME = "roundrobin";
-    
     private static int RECYCLE_PERIOD = 60000;
-    
     protected static class WeightedRoundRobin {
+        // 服务提供者权重
         private int weight;
+        // 当前权重
         private AtomicLong current = new AtomicLong(0);
+        // 最后一次更新时间
         private long lastUpdate;
         public int getWeight() {
             return weight;
@@ -62,18 +63,13 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
             this.lastUpdate = lastUpdate;
         }
     }
-
+    // 最外层为服务类名 + 方法名，第二层为 url 到 WeightedRoundRobin 的映射关系。
     private ConcurrentMap<String, ConcurrentMap<String, WeightedRoundRobin>> methodWeightMap = new ConcurrentHashMap<String, ConcurrentMap<String, WeightedRoundRobin>>();
+    // 原子更新锁
     private AtomicBoolean updateLock = new AtomicBoolean();
     
     /**
-     * get invoker addr list cached for specified invocation
-     * <p>
-     * <b>for unit test only</b>
-     * 
-     * @param invokers
-     * @param invocation
-     * @return
+     * 获取 invoker 的地址列表
      */
     protected <T> Collection<String> getInvokerAddrList(List<Invoker<T>> invokers, Invocation invocation) {
         String key = invokers.get(0).getUrl().getServiceKey() + "." + invocation.getMethodName();
@@ -83,20 +79,28 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
         }
         return null;
     }
-    
     @Override
     protected <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+        // 获取 url 到 WeightedRoundRobin 映射表，如果为空表示没有被调用过,创建一个新的,这也是为啥 USER_A,USER_B,USER_C在第一次轮询没有考虑权重的原因
         String key = invokers.get(0).getUrl().getServiceKey() + "." + invocation.getMethodName();
         ConcurrentMap<String, WeightedRoundRobin> map = methodWeightMap.get(key);
         if (map == null) {
             methodWeightMap.putIfAbsent(key, new ConcurrentHashMap<String, WeightedRoundRobin>());
             map = methodWeightMap.get(key);
         }
+        // 总的权重
         int totalWeight = 0;
         long maxCurrent = Long.MIN_VALUE;
         long now = System.currentTimeMillis();
         Invoker<T> selectedInvoker = null;
         WeightedRoundRobin selectedWRR = null;
+        // 下面这个循环主要做了这样几件事情：
+        //   1. 遍历 Invoker 列表，检测当前 Invoker 是否有相应的 WeightedRoundRobin，没有则创建
+        //   2. 检测 Invoker 权重是否发生了变化，若变化了，则更新 WeightedRoundRobin 的 weight 字段
+        //   3. 让 current 字段加上自身权重，等价于 current += weight
+        //   4. 设置 lastUpdate 字段，即 lastUpdate = now
+        //   5. 寻找具有最大 current 的 Invoker，以及 Invoker 对应的 WeightedRoundRobin，暂存起来，留作后用
+        //   6. 计算权重总和
         for (Invoker<T> invoker : invokers) {
             String identifyString = invoker.getUrl().toIdentityString();
             WeightedRoundRobin weightedRoundRobin = map.get(identifyString);
@@ -108,7 +112,6 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
                 map.putIfAbsent(identifyString, weightedRoundRobin);
             }
             if (weight != weightedRoundRobin.getWeight()) {
-                //weight changed
                 weightedRoundRobin.setWeight(weight);
             }
             long cur = weightedRoundRobin.increaseCurrent();
@@ -120,6 +123,9 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
             }
             totalWeight += weight;
         }
+        // 对 <identifyString, WeightedRoundRobin> 进行检查，过滤掉长时间未被更新的节点。
+        // 该节点可能挂了，invokers 中不包含该节点，所以该节点的 lastUpdate 长时间无法被更新。
+        // 若未更新时长超过阈值后，就会被移除掉，默认阈值为60秒。
         if (!updateLock.get() && invokers.size() != map.size()) {
             if (updateLock.compareAndSet(false, true)) {
                 try {
@@ -141,10 +147,10 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
         }
         if (selectedInvoker != null) {
             selectedWRR.sel(totalWeight);
+            // 返回最大的 invoker
             return selectedInvoker;
         }
         // should not happen here
         return invokers.get(0);
     }
-
 }

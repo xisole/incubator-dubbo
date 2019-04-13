@@ -35,9 +35,8 @@ import java.util.List;
  */
 @SPI(RandomLoadBalance.NAME)
 public interface LoadBalance {
-
     /**
-     * select one invoker in list.
+     * 在invoker的列表中选择一个
      *
      * @param invokers   invokers.
      * @param url        refer url

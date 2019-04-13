@@ -30,40 +30,36 @@ import java.util.List;
  */
 public abstract class AbstractLoadBalance implements LoadBalance {
     /**
-     * Calculate the weight according to the uptime proportion of warmup time
-     * the new weight will be within 1(inclusive) to weight(inclusive)
-     *
-     * @param uptime the uptime in milliseconds
-     * @param warmup the warmup time in milliseconds
-     * @param weight the weight of an invoker
-     * @return weight which takes warmup into account
+     * 计算权重
      */
     static int calculateWarmupWeight(int uptime, int warmup, int weight) {
         int ww = (int) ((float) uptime / ((float) warmup / (float) weight));
         return ww < 1 ? 1 : (ww > weight ? weight : ww);
     }
-
     @Override
     public <T> Invoker<T> select(List<Invoker<T>> invokers, URL url, Invocation invocation) {
+        // 如果没有执行者那没啥好选的
         if (CollectionUtils.isEmpty(invokers)) {
             return null;
         }
+        // 如果只有一个那也没啥好选的,也不需要啥负载均衡了
         if (invokers.size() == 1) {
             return invokers.get(0);
         }
+        // 真正开始使用负载均衡策略去选择的这一步
         return doSelect(invokers, url, invocation);
     }
-
-    protected abstract <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation);
-
-
     /**
-     * Get the weight of the invoker's invocation which takes warmup time into account
-     * if the uptime is within the warmup time, the weight will be reduce proportionally
-     *
-     * @param invoker    the invoker
-     * @param invocation the invocation of this invoker
-     * @return weight
+     * 这个选择逻辑才是各个选择策略真正要关注的
+     * @param invokers
+     * @param url
+     * @param invocation
+     * @param <T>
+     * @return
+     */
+    protected abstract <T> Invoker<T> doSelect(List<Invoker<T>> invokers, URL url, Invocation invocation);
+    /**
+     * 获取 invoker 的权重
      */
     protected int getWeight(Invoker<?> invoker, Invocation invocation) {
         int weight = invoker.getUrl().getMethodParameter(invocation.getMethodName(), Constants.WEIGHT_KEY, Constants.DEFAULT_WEIGHT);
