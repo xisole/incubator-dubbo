@@ -52,9 +52,11 @@ import java.util.Map;
 import static org.apache.dubbo.config.spring.util.BeanFactoryUtils.addApplicationListener;
 
 /**
- * ServiceFactoryBean
+ * ServiceFactoryBean 20190419源码解析
  *
- * @export
+ * @author isole
+ *
+ * ApplicationListener Spring容器初始化完成之后回调里面的方法 onApplicationEvent
  */
 public class ServiceBean<T> extends ServiceConfig<T> implements InitializingBean, DisposableBean,
         ApplicationContextAware, ApplicationListener<ContextRefreshedEvent>, BeanNameAware,
@@ -104,12 +106,18 @@ public class ServiceBean<T> extends ServiceConfig<T> implements InitializingBean
         return service;
     }
 
+    /**
+     * spring 事件通知机制,当容器加载完成,会回调次方法以进行服务的暴露
+     * @param event
+     */
     @Override
     public void onApplicationEvent(ContextRefreshedEvent event) {
         if (!isExported() && !isUnexported()) {
             if (logger.isInfoEnabled()) {
+                // 如果这个服务配置的允许暴露的话,打这个日志,控制台启动的时候可以看到的
                 logger.info("The service ready on spring started. service: " + getInterface());
             }
+            // 执行服务的暴露
             export();
         }
     }
@@ -316,8 +324,9 @@ public class ServiceBean<T> extends ServiceConfig<T> implements InitializingBean
      */
     @Override
     public void export() {
+        // 调用 ServiceConfig 的 export 服务的导出方法进行服务的导出
         super.export();
-        // Publish ServiceBeanExportedEvent
+        // 发布 ServiceBeanExportedEvent
         publishExportEvent();
     }
 
